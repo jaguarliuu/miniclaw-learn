@@ -2,7 +2,6 @@ package com.miniclaw;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * MiniClaw AI Agent 框架主启动类
@@ -22,7 +21,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * @version 0.0.1-SNAPSHOT
  */
 @SpringBootApplication
-@EnableScheduling
 public class MiniClawApplication {
 
     /**
