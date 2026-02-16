@@ -1,0 +1,32 @@
+# 开发环境配置
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+  # 开发环境数据源
+  datasource:
+    url: jdbc:postgresql://localhost:5432/miniclaw
+    username: miniclaw
+    password: miniclaw123
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+# 开发环境日志（详细日志）
+logging:
+  level:
+    com.miniclaw: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+# 开发环境特性
+miniclaw:
+  debug: true
+  # 允许详细错误信息（仅开发环境）
+  show-sql: true
