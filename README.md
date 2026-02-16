@@ -1,37 +1,22 @@
 # MiniClaw Learn - 从零构建 AI Agent 框架
 
-> 基于 MiniClaw AI Agent 实战课程的代码仓库
-> 每一小节对应一个 commit，循序渐进
+> 跟着课程一步步构建完整的 AI Agent 系统
+> 每个 commit 对应一小节的学习内容
 
-## 项目结构
+## 项目演进路线
 
-```
-miniclaw-learn/
-├── chapter-03/          # 开发环境与基础底座
-│   ├── 3.1-env-setup/   # 开发环境准备
-│   ├── 3.2-docker/      # Docker Compose 编排
-│   └── 3.3-flyway/      # 数据库迁移
-├── chapter-04/          # LLM 对接与流式输出
-├── chapter-05/          # WebSocket 网关与 RPC 协议
-└── ...
-```
-
-## 章节进度
-
-- [ ] 第 3 章：开发环境与基础底座
-- [ ] 第 4 章：LLM 对接与流式输出
-- [ ] 第 5 章：WebSocket 网关与 RPC 协议
-- [ ] 第 6 章：前端界面开发
-- [ ] 第 7 章：工具系统与安全控制
-- [ ] 第 8 章：ReAct 循环
-- [ ] 第 9 章：Skills 技能系统
-- [ ] 第 10 章：Memory 记忆系统
+- 3.1 开发环境准备
+- 3.2 Docker Compose 编排
+- 3.3 Flyway 数据库迁移
+- 3.4 Spring Boot 项目骨架
+- 3.5 配置管理
+- ...
 
 ## 学习建议
 
-1. 每一小节独立可运行
-2. 跟着 commit 历史学习
-3. 动手实践，不要只看不练
+1. 跟着 git log 查看每一小节的改动
+2. 每个步骤都可以独立运行
+3. 动手实践，理解每一步的意义
 
 ---
 创建时间: 2026-02-16
