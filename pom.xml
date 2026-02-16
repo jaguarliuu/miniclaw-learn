@@ -18,9 +18,9 @@
     <description>从零构建 AI Agent 框架 - 学习项目</description>
 
     <properties>
-        <!-- JDK 24 (与 miniclaw 保持一致) -->
-        <maven.compiler.source>24</maven.compiler.source>
-        <maven.compiler.target>24</maven.compiler.target>
+        <!-- JDK 21 (Spring Boot 3.4.5 支持的最低版本) -->
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
