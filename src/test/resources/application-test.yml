@@ -1,0 +1,20 @@
+# 测试环境配置
+spring:
+  config:
+    activate:
+      on-profile: test
+
+  # 禁用 JPA 自动配置（测试不需要数据库）
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+
+# 测试环境日志
+logging:
+  level:
+    com.miniclaw: INFO
+
+miniclaw:
+  debug: false

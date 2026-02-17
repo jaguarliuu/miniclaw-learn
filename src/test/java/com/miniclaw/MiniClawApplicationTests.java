@@ -2,7 +2,7 @@ package com.miniclaw;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
 
 /**
  * MiniClaw 应用程序上下文测试
@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Import;
  * <p>验证 Spring Boot 应用能够正常启动和加载所有组件。
  */
 @SpringBootTest
+@ActiveProfiles("test")
 class MiniClawApplicationTests {
 
     /**
