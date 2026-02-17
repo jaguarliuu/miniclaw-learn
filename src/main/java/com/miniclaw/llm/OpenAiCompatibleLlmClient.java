@@ -88,8 +88,46 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
     @Override
     public Flux<LlmChunk> stream(LlmRequest request) {
-        // 第 4.4 节实现流式调用
-        throw new UnsupportedOperationException("Stream mode not implemented yet (will be in 4.4)");
+        if (webClient == null) {
+            return Flux.error(new LlmException("LLM client not configured"));
+        }
+
+        try {
+            // 构建 API 请求（stream = true）
+            ChatCompletionRequest apiRequest = buildApiRequest(request, true);
+
+            // 用于累积 tool_calls（流式模式下 arguments 是分片到达的）
+            Map<Integer, ToolCallAccumulator> toolCallAccumulators = new HashMap<>();
+
+            // 发送流式请求
+            return webClient.post()
+                .uri("/chat/completions")
+                .bodyValue(apiRequest)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .retrieve()
+                .bodyToFlux(String.class)
+                .timeout(Duration.ofSeconds(properties.getTimeout()))
+                .filter(line -> !line.isBlank())  // 过滤空行
+                .filter(line -> !line.equals("data: [DONE]"))  // 过滤结束标记
+                .map(line -> {
+                    try {
+                        // 移除 "data: " 前缀
+                        String json = line.startsWith("data: ") ? line.substring(6) : line;
+                        return parseChunk(json, toolCallAccumulators);
+                    } catch (Exception e) {
+                        log.error("Failed to parse chunk: {}", line, e);
+                        return LlmChunk.builder()
+                            .done(true)
+                            .build();
+                    }
+                })
+                .doOnError(error -> log.error("Stream error", error))
+                .doOnComplete(() -> log.debug("Stream completed"));
+
+        } catch (Exception e) {
+            log.error("LLM stream failed", e);
+            return Flux.error(new LlmException("LLM stream failed: " + e.getMessage(), e));
+        }
     }
 
     /**
@@ -204,6 +242,91 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             log.error("Failed to parse LLM response: {}", responseBody, e);
             throw new LlmException("Failed to parse LLM response", e);
         }
+    }
+
+    /**
+     * 解析流式响应块
+     */
+    private LlmChunk parseChunk(String json, Map<Integer, ToolCallAccumulator> accumulators) {
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            JsonNode choice = root.path("choices").get(0);
+            JsonNode delta = choice.path("delta");
+
+            // 解析内容增量
+            String contentDelta = delta.path("content").asText(null);
+
+            // 解析完成原因
+            String finishReason = choice.path("finish_reason").asText(null);
+
+            // 是否是最后一个 chunk
+            boolean done = finishReason != null && !"null".equals(finishReason);
+
+            // 解析工具调用增量
+            List<ToolCall> toolCalls = null;
+            if (delta.has("tool_calls")) {
+                toolCalls = new ArrayList<>();
+                for (JsonNode tc : delta.path("tool_calls")) {
+                    int index = tc.path("index").asInt();
+
+                    // 获取或创建累积器
+                    ToolCallAccumulator accumulator = accumulators.computeIfAbsent(
+                        index, k -> new ToolCallAccumulator()
+                    );
+
+                    // 累积工具调用信息
+                    if (tc.has("id")) {
+                        accumulator.id = tc.path("id").asText();
+                    }
+                    if (tc.has("type")) {
+                        accumulator.type = tc.path("type").asText();
+                    }
+                    if (tc.has("function")) {
+                        JsonNode function = tc.path("function");
+                        if (function.has("name")) {
+                            accumulator.functionName = function.path("name").asText();
+                        }
+                        if (function.has("arguments")) {
+                            accumulator.argumentsBuilder.append(function.path("arguments").asText());
+                        }
+                    }
+
+                    // 如果已完成，构建完整的 ToolCall
+                    if (done && accumulator.id != null) {
+                        ToolCall toolCall = ToolCall.builder()
+                            .id(accumulator.id)
+                            .type(accumulator.type)
+                            .function(ToolCall.FunctionCall.builder()
+                                .name(accumulator.functionName)
+                                .arguments(accumulator.argumentsBuilder.toString())
+                                .build())
+                            .build();
+                        toolCalls.add(toolCall);
+                    }
+                }
+            }
+
+            return LlmChunk.builder()
+                .delta(contentDelta)
+                .toolCalls(toolCalls)
+                .finishReason(finishReason)
+                .done(done)
+                .build();
+
+        } catch (Exception e) {
+            log.error("Failed to parse chunk: {}", json, e);
+            return LlmChunk.builder().done(true).build();
+        }
+    }
+
+    /**
+     * 工具调用累积器（用于流式模式）
+     */
+    private static class ToolCallAccumulator {
+        String id;
+        String type;
+        String functionName;
+        StringBuilder argumentsBuilder = new StringBuilder();
     }
 
     /**
