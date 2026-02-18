@@ -6,6 +6,7 @@ import com.miniclaw.llm.model.LlmChunk;
 import com.miniclaw.llm.model.LlmRequest;
 import com.miniclaw.llm.model.LlmResponse;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -21,9 +22,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * OpenAiCompatibleLlmClient 集成测试
  *
  * <p>测试真实的 API 调用（需要 API Key）
+ *
+ * <p>运行方式：mvn test -Dtest=OpenAiCompatibleLlmClientIntegrationTest -Denv.api.key=your_key
  */
 @SpringBootTest
 @ActiveProfiles("test")
+@Tag("integration")
 class OpenAiCompatibleLlmClientIntegrationTest {
 
     private OpenAiCompatibleLlmClient client;

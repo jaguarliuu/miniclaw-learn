@@ -68,18 +68,25 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             // 构建 API 请求
             ChatCompletionRequest apiRequest = buildApiRequest(request, false);
 
-            // 发送请求
+            // 发送请求（带重试）
             String responseBody = webClient.post()
                 .uri("/chat/completions")
                 .bodyValue(apiRequest)
                 .retrieve()
                 .bodyToMono(String.class)
                 .timeout(Duration.ofSeconds(properties.getTimeout()))
+                .retryWhen(reactor.util.retry.Retry.backoff(3, Duration.ofSeconds(1))
+                    .maxBackoff(Duration.ofSeconds(10))
+                    .filter(throwable -> isRetryableError(throwable))
+                    .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> 
+                        new LlmException("Max retries exceeded")))
                 .block();
 
             // 解析响应
             return parseResponse(responseBody);
 
+        } catch (LlmException e) {
+            throw e;
         } catch (Exception e) {
             log.error("LLM chat failed", e);
             throw new LlmException("LLM chat failed: " + e.getMessage(), e);
@@ -99,7 +106,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             // 用于累积 tool_calls（流式模式下 arguments 是分片到达的）
             Map<Integer, ToolCallAccumulator> toolCallAccumulators = new HashMap<>();
 
-            // 发送流式请求
+            // 发送流式请求（带重试和降级）
             return webClient.post()
                 .uri("/chat/completions")
                 .bodyValue(apiRequest)
@@ -120,6 +127,18 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
                             .done(true)
                             .build();
                     }
+                })
+                .retryWhen(reactor.util.retry.Retry.backoff(2, Duration.ofSeconds(1))
+                    .maxBackoff(Duration.ofSeconds(5))
+                    .filter(throwable -> isRetryableError(throwable))
+                    .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> 
+                        new LlmException("Stream max retries exceeded")))
+                .onErrorResume(error -> {
+                    log.error("Stream failed, returning error chunk", error);
+                    return Flux.just(LlmChunk.builder()
+                        .done(true)
+                        .finishReason("error")
+                        .build());
                 })
                 .doOnError(error -> log.error("Stream error", error))
                 .doOnComplete(() -> log.debug("Stream completed"));
@@ -344,5 +363,36 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         private List<Map<String, Object>> tools;
         @JsonProperty("tool_choice")
         private Object toolChoice;
+    }
+
+    /**
+     * 判断是否为可重试的错误（package-private for testing）
+     */
+    boolean isRetryableError(Throwable throwable) {
+        // 网络超时
+        if (throwable instanceof java.util.concurrent.TimeoutException) {
+            return true;
+        }
+
+        // WebClient 网络错误
+        if (throwable instanceof org.springframework.web.reactive.function.client.WebClientException) {
+            String message = throwable.getMessage();
+            // 5xx 服务器错误可重试
+            if (message != null && (message.contains("500") || message.contains("502") ||
+                message.contains("503") || message.contains("504"))) {
+                return true;
+            }
+            // 连接错误可重试
+            if (message != null && (message.contains("Connection") || message.contains("timeout"))) {
+                return true;
+            }
+        }
+
+        // 429 限流错误可重试
+        if (throwable.getMessage() != null && throwable.getMessage().contains("429")) {
+            return true;
+        }
+
+        return false;
     }
 }

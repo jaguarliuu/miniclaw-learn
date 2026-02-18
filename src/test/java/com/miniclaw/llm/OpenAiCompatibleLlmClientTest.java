@@ -3,6 +3,7 @@ package com.miniclaw.llm;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.miniclaw.llm.config.LlmProperties;
 import com.miniclaw.llm.exception.LlmException;
+import com.miniclaw.llm.model.LlmChunk;
 import com.miniclaw.llm.model.LlmRequest;
 import com.miniclaw.llm.model.LlmResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 
@@ -75,15 +77,14 @@ class OpenAiCompatibleLlmClientTest {
     }
 
     @Test
-    void testStreamNotImplemented() {
+    void testStreamReturnsFlux() {
         LlmRequest request = LlmRequest.builder()
             .messages(List.of(LlmRequest.Message.user("test")))
             .build();
 
-        // 流式调用应该抛出 UnsupportedOperationException
-        assertThrows(UnsupportedOperationException.class, () -> {
-            client.stream(request);
-        });
+        // 4.4 已实现流式调用，返回 Flux
+        Flux<LlmChunk> stream = client.stream(request);
+        assertNotNull(stream);
     }
 
     @Test
