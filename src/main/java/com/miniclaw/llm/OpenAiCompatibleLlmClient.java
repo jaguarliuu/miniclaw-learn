@@ -1,7 +1,5 @@
 package com.miniclaw.llm;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.miniclaw.llm.config.LlmProperties;
@@ -10,63 +8,93 @@ import com.miniclaw.llm.model.LlmChunk;
 import com.miniclaw.llm.model.LlmRequest;
 import com.miniclaw.llm.model.LlmResponse;
 import com.miniclaw.llm.model.ToolCall;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * OpenAI 兼容的 LLM 客户端
+ * OpenAI 兼容的 LLM 客户端（支持多 Provider）
  *
- * <p>支持 OpenAI、DeepSeek、通义千问、Ollama 等兼容 OpenAI API 的模型
+ * <p>支持配置多个 LLM 提供商，动态切换模型
  *
- * <p>功能：
- * <ul>
- *   <li>同步调用（chat）</li>
- *   <li>流式调用（stream）- 第 4.4 节实现</li>
- *   <li>Function Calling 支持</li>
- * </ul>
+ * <p>使用示例：
+ * <pre>
+ * // 使用默认 Provider
+ * LlmResponse response = client.chat(request);
+ *
+ * // 指定 Provider
+ * LlmResponse response = client.chat(request, "openai");
+ *
+ * // 流式输出
+ * Flux<LlmChunk> stream = client.stream(request, "deepseek");
+ * </pre>
  */
 @Slf4j
-@Component
 public class OpenAiCompatibleLlmClient implements LlmClient {
 
-    private final WebClient webClient;
     private final LlmProperties properties;
     private final ObjectMapper objectMapper;
 
+    /**
+     * Provider ID -> WebClient 缓存
+     */
+    private final Map<String, WebClient> clientCache = new ConcurrentHashMap<>();
+
+    /**
+     * 构造函数（自动初始化所有 Provider）
+     */
     public OpenAiCompatibleLlmClient(LlmProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
         this.objectMapper = objectMapper;
 
-        // 构建 WebClient
-        if (properties.getEndpoint() != null && !properties.getEndpoint().isBlank()) {
-            this.webClient = buildWebClient(properties.getEndpoint(), properties.getApiKey());
-            log.info("LLM Client initialized: endpoint={}, model={}",
-                properties.getEndpoint(), properties.getModel());
-        } else {
-            this.webClient = null;
-            log.info("LLM Client created without endpoint — waiting for configuration");
-        }
+        // 初始化所有配置的 Provider
+        properties.getProviders().forEach((providerId, config) -> {
+            if (config.getEndpoint() != null && config.getApiKey() != null) {
+                WebClient client = buildWebClient(config.getEndpoint(), config.getApiKey());
+                clientCache.put(providerId, client);
+                log.info("LLM Client initialized: provider={}, endpoint={}",
+                    providerId, config.getEndpoint());
+            }
+        });
     }
 
     @Override
     public LlmResponse chat(LlmRequest request) {
+        return chat(request, null);
+    }
+
+    /**
+     * 同步调用（指定 Provider）
+     *
+     * @param request 请求
+     * @param providerId Provider ID（null 使用默认）
+     * @return 响应
+     */
+    public LlmResponse chat(LlmRequest request, String providerId) {
+        WebClient webClient = resolveClient(providerId);
         if (webClient == null) {
             throw new LlmException("LLM client not configured");
         }
 
+        String actualProviderId = providerId;
+        if (actualProviderId == null) {
+            actualProviderId = properties.getDefaultProviderId();
+        }
+        if (actualProviderId == null && !clientCache.isEmpty()) {
+            actualProviderId = clientCache.keySet().iterator().next();
+        }
+
         try {
             // 构建 API 请求
-            ChatCompletionRequest apiRequest = buildApiRequest(request, false);
+            ChatCompletionRequest apiRequest = buildApiRequest(request, actualProviderId, false);
 
             // 发送请求（带重试）
             String responseBody = webClient.post()
@@ -78,7 +106,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
                 .retryWhen(reactor.util.retry.Retry.backoff(3, Duration.ofSeconds(1))
                     .maxBackoff(Duration.ofSeconds(10))
                     .filter(throwable -> isRetryableError(throwable))
-                    .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> 
+                    .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
                         new LlmException("Max retries exceeded")))
                 .block();
 
@@ -95,13 +123,33 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
     @Override
     public Flux<LlmChunk> stream(LlmRequest request) {
+        return stream(request, null);
+    }
+
+    /**
+     * 流式调用（指定 Provider）
+     *
+     * @param request 请求
+     * @param providerId Provider ID（null 使用默认）
+     * @return 流式响应
+     */
+    public Flux<LlmChunk> stream(LlmRequest request, String providerId) {
+        WebClient webClient = resolveClient(providerId);
         if (webClient == null) {
             return Flux.error(new LlmException("LLM client not configured"));
         }
 
+        String actualProviderId = providerId;
+        if (actualProviderId == null) {
+            actualProviderId = properties.getDefaultProviderId();
+        }
+        if (actualProviderId == null && !clientCache.isEmpty()) {
+            actualProviderId = clientCache.keySet().iterator().next();
+        }
+
         try {
             // 构建 API 请求（stream = true）
-            ChatCompletionRequest apiRequest = buildApiRequest(request, true);
+            ChatCompletionRequest apiRequest = buildApiRequest(request, actualProviderId, true);
 
             // 用于累积 tool_calls（流式模式下 arguments 是分片到达的）
             Map<Integer, ToolCallAccumulator> toolCallAccumulators = new HashMap<>();
@@ -131,7 +179,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
                 .retryWhen(reactor.util.retry.Retry.backoff(2, Duration.ofSeconds(1))
                     .maxBackoff(Duration.ofSeconds(5))
                     .filter(throwable -> isRetryableError(throwable))
-                    .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> 
+                    .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
                         new LlmException("Stream max retries exceeded")))
                 .onErrorResume(error -> {
                     log.error("Stream failed, returning error chunk", error);
@@ -150,6 +198,35 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     }
 
     /**
+     * 解析 WebClient（支持指定 Provider）
+     */
+    private WebClient resolveClient(String providerId) {
+        if (providerId != null) {
+            WebClient client = clientCache.get(providerId);
+            if (client != null) {
+                return client;
+            }
+            log.warn("Provider not found: {}, falling back to default", providerId);
+        }
+
+        // 使用默认 Provider
+        String defaultProviderId = properties.getDefaultProviderId();
+        if (defaultProviderId != null) {
+            WebClient client = clientCache.get(defaultProviderId);
+            if (client != null) {
+                return client;
+            }
+        }
+
+        // 兜底：使用第一个可用的
+        if (!clientCache.isEmpty()) {
+            return clientCache.values().iterator().next();
+        }
+
+        return null;
+    }
+
+    /**
      * 构建 WebClient
      */
     private WebClient buildWebClient(String endpoint, String apiKey) {
@@ -161,13 +238,17 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     }
 
     /**
-     * 构建 API 请求
+     * 构建 API 请求（使用指定 Provider 的默认模型）
      */
-    private ChatCompletionRequest buildApiRequest(LlmRequest request, boolean stream) {
+    private ChatCompletionRequest buildApiRequest(LlmRequest request, String providerId, boolean stream) {
         ChatCompletionRequest apiRequest = new ChatCompletionRequest();
 
-        // 模型
-        apiRequest.setModel(request.getModel() != null ? request.getModel() : properties.getModel());
+        // 模型（优先使用请求中的模型，否则使用 Provider 默认模型）
+        String model = request.getModel();
+        if (model == null) {
+            model = properties.getDefaultModel(providerId);
+        }
+        apiRequest.setModel(model);
 
         // 消息
         List<Map<String, Object>> messages = new ArrayList<>();
@@ -192,18 +273,11 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         apiRequest.setMessages(messages);
 
         // 参数
-        apiRequest.setTemperature(request.getTemperature() != null ? request.getTemperature() : properties.getTemperature());
-        apiRequest.setMaxTokens(request.getMaxTokens() != null ? request.getMaxTokens() : properties.getMaxTokens());
+        apiRequest.setTemperature(request.getTemperature() != null ?
+            request.getTemperature() : properties.getTemperature());
+        apiRequest.setMaxTokens(request.getMaxTokens() != null ?
+            request.getMaxTokens() : properties.getMaxTokens());
         apiRequest.setStream(stream);
-
-        // 工具
-        if (request.getTools() != null && !request.getTools().isEmpty()) {
-            apiRequest.setTools(request.getTools());
-        }
-
-        if (request.getToolChoice() != null) {
-            apiRequest.setToolChoice(request.getToolChoice());
-        }
 
         return apiRequest;
     }
@@ -339,16 +413,6 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     }
 
     /**
-     * 工具调用累积器（用于流式模式）
-     */
-    private static class ToolCallAccumulator {
-        String id;
-        String type;
-        String functionName;
-        StringBuilder argumentsBuilder = new StringBuilder();
-    }
-
-    /**
      * OpenAI API 请求模型
      */
     @Data
@@ -363,6 +427,16 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         private List<Map<String, Object>> tools;
         @JsonProperty("tool_choice")
         private Object toolChoice;
+    }
+
+    /**
+     * 工具调用累积器（用于流式模式）
+     */
+    private static class ToolCallAccumulator {
+        String id;
+        String type;
+        String functionName;
+        StringBuilder argumentsBuilder = new StringBuilder();
     }
 
     /**

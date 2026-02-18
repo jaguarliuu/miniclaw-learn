@@ -45,9 +45,16 @@ class OpenAiCompatibleLlmClientTest {
     @BeforeEach
     void setUp() {
         properties = new LlmProperties();
-        properties.setEndpoint("https://api.openai.com/v1");
-        properties.setApiKey("test-api-key");
-        properties.setModel("gpt-4");
+
+        // 配置单个 Provider（测试用）
+        LlmProperties.ProviderConfig openai = new LlmProperties.ProviderConfig();
+        openai.setEndpoint("https://api.openai.com/v1");
+        openai.setApiKey("test-api-key");
+        openai.setModels(List.of("gpt-4", "gpt-3.5-turbo"));
+        openai.setDefaultModel("gpt-4");
+
+        properties.getProviders().put("openai", openai);
+        properties.setDefaultProvider("openai");
         properties.setTimeout(60);
 
         objectMapper = new ObjectMapper();
@@ -57,14 +64,15 @@ class OpenAiCompatibleLlmClientTest {
     @Test
     void testClientInitialization() {
         assertNotNull(client);
-        assertEquals("https://api.openai.com/v1", properties.getEndpoint());
-        assertEquals("gpt-4", properties.getModel());
+        assertEquals("https://api.openai.com/v1",
+            properties.getProvider("openai").getEndpoint());
+        assertEquals("gpt-4",
+            properties.getDefaultModel("openai"));
     }
 
     @Test
-    void testClientWithoutEndpoint() {
+    void testClientWithoutProvider() {
         LlmProperties emptyProps = new LlmProperties();
-        emptyProps.setEndpoint(null);
 
         OpenAiCompatibleLlmClient emptyClient = new OpenAiCompatibleLlmClient(emptyProps, objectMapper);
 
@@ -95,24 +103,5 @@ class OpenAiCompatibleLlmClientTest {
         assertEquals(60, props.getTimeout());
         assertEquals(0.7, props.getTemperature());
         assertEquals(4096, props.getMaxTokens());
-    }
-
-    @Test
-    void testPropertiesSetters() {
-        LlmProperties props = new LlmProperties();
-
-        props.setEndpoint("https://api.deepseek.com/v1");
-        props.setApiKey("sk-test");
-        props.setModel("deepseek-chat");
-        props.setTimeout(120);
-        props.setTemperature(0.5);
-        props.setMaxTokens(8192);
-
-        assertEquals("https://api.deepseek.com/v1", props.getEndpoint());
-        assertEquals("sk-test", props.getApiKey());
-        assertEquals("deepseek-chat", props.getModel());
-        assertEquals(120, props.getTimeout());
-        assertEquals(0.5, props.getTemperature());
-        assertEquals(8192, props.getMaxTokens());
     }
 }

@@ -32,9 +32,15 @@ class OpenAiCompatibleLlmClientRetryTest {
         MockitoAnnotations.openMocks(this);
 
         properties = new LlmProperties();
-        properties.setEndpoint("https://api.openai.com/v1");
-        properties.setApiKey("test-key");
-        properties.setModel("gpt-4");
+
+        LlmProperties.ProviderConfig openai = new LlmProperties.ProviderConfig();
+        openai.setEndpoint("https://api.openai.com/v1");
+        openai.setApiKey("test-key");
+        openai.setModels(List.of("gpt-4"));
+        openai.setDefaultModel("gpt-4");
+
+        properties.getProviders().put("openai", openai);
+        properties.setDefaultProvider("openai");
         properties.setTimeout(60);
 
         ObjectMapper objectMapper = new ObjectMapper();

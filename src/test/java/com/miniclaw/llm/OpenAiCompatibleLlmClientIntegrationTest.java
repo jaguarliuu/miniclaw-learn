@@ -31,14 +31,27 @@ import static org.junit.jupiter.api.Assertions.*;
 class OpenAiCompatibleLlmClientIntegrationTest {
 
     private OpenAiCompatibleLlmClient client;
+    private LlmProperties properties;
 
     @BeforeEach
     void setUp() {
         // 从环境变量读取配置
-        LlmProperties properties = new LlmProperties();
-        properties.setEndpoint(System.getenv("LLM_ENDPOINT"));
-        properties.setApiKey(System.getenv("LLM_API_KEY"));
-        properties.setModel(System.getenv("LLM_MODEL"));
+        properties = new LlmProperties();
+
+        String endpoint = System.getenv("LLM_ENDPOINT");
+        String apiKey = System.getenv("LLM_API_KEY");
+        String model = System.getenv("LLM_MODEL");
+
+        if (endpoint != null && apiKey != null) {
+            LlmProperties.ProviderConfig provider = new LlmProperties.ProviderConfig();
+            provider.setEndpoint(endpoint);
+            provider.setApiKey(apiKey);
+            provider.setModels(model != null ? List.of(model) : List.of());
+            provider.setDefaultModel(model);
+
+            properties.getProviders().put("default", provider);
+            properties.setDefaultProvider("default");
+        }
         properties.setTimeout(60);
 
         ObjectMapper objectMapper = new ObjectMapper();
